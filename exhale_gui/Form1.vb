@@ -196,7 +196,7 @@ Public Class Form1
         Else
             Data = Download_Files(Input_File).ToArray()
         End If
-        If Not ffmpeg_version = String.Empty And Not FileExtension = ".wav" Then
+        If Not ffmpeg_version = String.Empty Then
             Data = ffmpeg_preprocess(Data, Input_File, TempMetadataFileName)
         ElseIf Not FileExtension = ".wav" Then
             Return False
