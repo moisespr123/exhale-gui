@@ -189,30 +189,32 @@ Public Class Form1
         Dim exhaleProcessInfo As New ProcessStartInfo
         Dim exhaleProcess As Process
         Dim TempMetadataFileName As String = Path.GetTempFileName
-        Dim TempDecodedFile As String = Path.GetTempFileName
-        Dim TempGdriveFileName As String = String.Empty
         exhaleProcessInfo.FileName = "exhale.exe"
-        If Input_Type = 1 Then
-            TempGdriveFileName = Path.GetTempFileName
-            Download_Files(Input_File, TempGdriveFileName)
-            Input_File = TempGdriveFileName
+        Dim Data As Byte()
+        If Input_Type = 0 Then
+            Data = IO.File.ReadAllBytes(Input_File)
+        Else
+            Data = Download_Files(Input_File).ToArray()
         End If
-        If Not ffmpeg_version = String.Empty Then
-            ffmpeg_preprocess(Input_File, TempDecodedFile, TempMetadataFileName)
-            Input_File = TempDecodedFile
+        If Not ffmpeg_version = String.Empty And Not FileExtension = ".wav" Then
+            Data = ffmpeg_preprocess(Data, Input_File, TempMetadataFileName)
         ElseIf Not FileExtension = ".wav" Then
             Return False
         End If
         Dim TempOutputFile As String = Path.GetTempFileName
         File.Delete(TempOutputFile)
-        exhaleProcessInfo.Arguments = Preset + " """ + Input_File + """ """ + TempOutputFile + """"
+        exhaleProcessInfo.Arguments = Preset + " """ + TempOutputFile + """"
         exhaleProcessInfo.WorkingDirectory = Path.GetDirectoryName(Input_File)
         exhaleProcessInfo.CreateNoWindow = True
         exhaleProcessInfo.RedirectStandardOutput = True
         exhaleProcessInfo.RedirectStandardError = True
-        exhaleProcessInfo.RedirectStandardInput = False
+        exhaleProcessInfo.RedirectStandardInput = True
         exhaleProcessInfo.UseShellExecute = False
         exhaleProcess = Process.Start(exhaleProcessInfo)
+        Dim ffmpegIn As IO.Stream = exhaleProcess.StandardInput.BaseStream
+        ffmpegIn.Write(Data, 0, Data.Length)
+        ffmpegIn.Flush()
+        ffmpegIn.Close()
         Dim errorOutput As String = exhaleProcess.StandardError.ReadToEnd
         exhaleProcess.WaitForExit()
         If Not ffmpeg_version = String.Empty Then
@@ -220,30 +222,40 @@ Public Class Form1
         Else
             File.Copy(TempOutputFile, Output_File)
         End If
-        If Input_Type = 1 Then
-            If File.Exists(TempGdriveFileName) Then File.Delete(TempGdriveFileName)
-        End If
         If File.Exists(TempMetadataFileName) Then File.Delete(TempMetadataFileName)
-        If File.Exists(TempDecodedFile) Then File.Delete(TempDecodedFile)
         If File.Exists(TempOutputFile) Then File.Delete(TempOutputFile)
         ProgressBar1.BeginInvoke(Sub() ProgressBar1.PerformStep())
         Return True
     End Function
-    Private Function ffmpeg_preprocess(Input As String, Output As String, MetadataFile As String) As Boolean
+    Private Function ffmpeg_preprocess(Input As Byte(), Filename As String, MetadataFile As String) As Byte()
+        Dim input_file As String = IO.Path.GetFileName(Filename)
+        Dim output_file As String = IO.Path.GetFileNameWithoutExtension(Filename) + ".wav"
+        Dim InputPipe As New NamedPipeServerStream(input_file, PipeDirection.Out, -1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 16384, 0)
+        Dim OutputPipe As New NamedPipeServerStream(output_file, PipeDirection.In, -1, PipeTransmissionMode.Byte, PipeOptions.WriteThrough, 0, 16384)
         Dim ffmpegProcessInfo As New ProcessStartInfo
         Dim ffmpegProcess As Process
         ffmpegProcessInfo.FileName = "ffmpeg.exe"
-        ffmpegProcessInfo.Arguments = "-i """ + Input + """ -f ffmetadata """ + MetadataFile + """ -f wav """ + Output + """ -y"
+        ffmpegProcessInfo.Arguments = "-i ""\\.\pipe\" + input_file + """ -f ffmetadata """ + MetadataFile + """ -f wav -bitexact -map_metadata -1 ""\\.\pipe\" + output_file + """ -y"
         ffmpegProcessInfo.CreateNoWindow = True
-        ffmpegProcessInfo.RedirectStandardInput = False
+        ffmpegProcessInfo.RedirectStandardInput = True
         ffmpegProcessInfo.RedirectStandardOutput = True
-        ffmpegProcessInfo.RedirectStandardError = True
         ffmpegProcessInfo.UseShellExecute = False
         ffmpegProcess = Process.Start(ffmpegProcessInfo)
-        Dim errorOutput As String = ffmpegProcess.StandardError.ReadToEnd
-        Dim standardOutput As String = ffmpegProcess.StandardOutput.ReadToEnd
+        WriteByteAsync(InputPipe, Input)
+        Dim lastRead As Integer
+        OutputPipe.WaitForConnection()
+        Dim PipedOutput As Byte()
+        Using ms As New IO.MemoryStream
+            Dim buffer As Byte() = New Byte(16384) {}
+            Do
+                lastRead = OutputPipe.Read(buffer, 0, 16384)
+                ms.Write(buffer, 0, lastRead)
+            Loop While lastRead > 0
+            PipedOutput = ms.ToArray()
+            OutputPipe.Close()
+        End Using
         ffmpegProcess.WaitForExit()
-        Return True
+        Return PipedOutput
     End Function
     Private Function ffmpeg_apply_tags(Input As String, Output As String, MetadataFile As String) As Boolean
         Dim ffmpegProcessInfo As New ProcessStartInfo
