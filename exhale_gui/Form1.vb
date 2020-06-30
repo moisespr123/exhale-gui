@@ -235,7 +235,7 @@ Public Class Form1
         Dim ffmpegProcessInfo As New ProcessStartInfo
         Dim ffmpegProcess As Process
         ffmpegProcessInfo.FileName = "ffmpeg.exe"
-        ffmpegProcessInfo.Arguments = "-i ""\\.\pipe\" + input_file + """ -f ffmetadata """ + MetadataFile + """ -f wav -bitexact -map_metadata -1 ""\\.\pipe\" + output_file + """ -y"
+        ffmpegProcessInfo.Arguments = "-i ""\\.\pipe\" + input_file + """ -f ffmetadata """ + MetadataFile + """ -f wav ""\\.\pipe\" + output_file + """ -y"
         ffmpegProcessInfo.CreateNoWindow = True
         ffmpegProcessInfo.RedirectStandardInput = True
         ffmpegProcessInfo.RedirectStandardOutput = True
